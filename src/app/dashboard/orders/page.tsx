@@ -63,7 +63,7 @@ export default function OrdersPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const orderStatuses = ["all", ...new Set(orders.map((o) => o.OrderStatus))];
+  const orderStatuses = ["all", ...Array.from(new Set(orders.map((o) => o.OrderStatus)))];
 
   if (loading) {
     return (
