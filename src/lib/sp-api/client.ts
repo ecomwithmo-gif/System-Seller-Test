@@ -187,7 +187,6 @@ export class SPAPIClient {
   } = {}) {
     const query: Record<string, string | string[] | undefined> = {
       MarketplaceIds: this.marketplaceId,
-      ...params,
     };
     
     if (params.createdAfter) query.CreatedAfter = params.createdAfter;
