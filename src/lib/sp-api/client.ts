@@ -3,7 +3,7 @@
  * Central client for making authenticated calls to Selling Partner APIs
  */
 
-import { getAccessToken, getSTSCredentials } from './auth';
+import { getAccessToken, getSTSCredentials, hasAWSCredentials } from './auth';
 import aws4 from 'aws4';
 
 export interface SPAPIRequestOptions {
@@ -83,9 +83,8 @@ export async function spApiRequest<T = unknown>(
   try {
     const { method = 'GET', path, query, body, headers = {} } = options;
     
-    // Get auth credentials
+    // Get access token
     const accessToken = await getAccessToken();
-    const credentials = await getSTSCredentials();
     
     // Build the full URL
     const endpoint = process.env.SP_API_ENDPOINT || 'https://sellingpartnerapi-na.amazon.com';
@@ -96,35 +95,41 @@ export async function spApiRequest<T = unknown>(
     const apiType = path.split('/')[1] || 'default';
     await checkRateLimit(apiType);
     
-    // Prepare the request for signing
-    const requestOptions: aws4.Request = {
-      host: new URL(endpoint).host,
-      method,
-      path: fullPath,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-amz-access-token': accessToken,
-        ...headers,
-      },
-      service: 'execute-api',
-      region: 'us-east-1',
+    let finalHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-amz-access-token': accessToken,
+      ...headers,
     };
 
-    if (body) {
-      requestOptions.body = JSON.stringify(body);
-    }
+    // If AWS credentials are available, sign the request
+    if (hasAWSCredentials()) {
+      const credentials = await getSTSCredentials();
+      const requestOptions: aws4.Request = {
+        host: new URL(endpoint).host,
+        method,
+        path: fullPath,
+        headers: finalHeaders,
+        service: 'execute-api',
+        region: 'us-east-1',
+      };
 
-    // Sign the request with AWS4
-    const signedRequest = aws4.sign(requestOptions, {
-      accessKeyId: credentials.accessKeyId,
-      secretAccessKey: credentials.secretAccessKey,
-      sessionToken: credentials.sessionToken,
-    });
+      if (body) {
+        requestOptions.body = JSON.stringify(body);
+      }
+
+      const signedRequest = aws4.sign(requestOptions, {
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+        sessionToken: credentials.sessionToken,
+      });
+
+      finalHeaders = signedRequest.headers as Record<string, string>;
+    }
 
     // Make the request
     const response = await fetch(endpoint + fullPath, {
       method,
-      headers: signedRequest.headers as Record<string, string>,
+      headers: finalHeaders,
       body: body ? JSON.stringify(body) : undefined,
     });
 
@@ -157,6 +162,7 @@ export async function spApiRequest<T = unknown>(
     };
   }
 }
+
 
 /**
  * SP-API Client class with methods for each API

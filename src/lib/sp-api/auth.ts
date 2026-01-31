@@ -54,62 +54,38 @@ export async function getAccessToken(): Promise<string> {
     expiresAt: Date.now() + data.expires_in * 1000,
   };
 
-  return data.access_token;
+  return cachedToken.accessToken;
 }
 
 /**
- * Get STS credentials for AWS Signature V4 signing
- * Used when role-based authentication is configured
+ * Get credentials for API signing
+ * Uses AWS credentials if available, otherwise returns empty for token-only auth
  */
 export async function getSTSCredentials(): Promise<{
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
 }> {
-  // If using IAM user directly (simpler setup)
-  if (!process.env.AWS_ROLE_ARN || process.env.AWS_ROLE_ARN === 'arn:aws:iam::YOUR_ACCOUNT:role/YOUR_ROLE') {
+  // If AWS credentials are provided, use them
+  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
     return {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     };
   }
 
-  // If using STS AssumeRole (more secure for production)
-  const accessToken = await getAccessToken();
-  
-  const stsResponse = await fetch('https://sts.amazonaws.com/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      Action: 'AssumeRole',
-      Version: '2011-06-15',
-      RoleArn: process.env.AWS_ROLE_ARN!,
-      RoleSessionName: 'sp-api-session',
-      DurationSeconds: '3600',
-    }),
-  });
-
-  if (!stsResponse.ok) {
-    // Fallback to IAM user credentials
-    return {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-    };
-  }
-
-  // Parse XML response (simplified)
-  const xml = await stsResponse.text();
-  const accessKeyMatch = xml.match(/<AccessKeyId>(.+?)<\/AccessKeyId>/);
-  const secretKeyMatch = xml.match(/<SecretAccessKey>(.+?)<\/SecretAccessKey>/);
-  const sessionTokenMatch = xml.match(/<SessionToken>(.+?)<\/SessionToken>/);
-
+  // Return dummy credentials - we'll skip AWS signing
   return {
-    accessKeyId: accessKeyMatch?.[1] || process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: secretKeyMatch?.[1] || process.env.AWS_SECRET_ACCESS_KEY!,
-    sessionToken: sessionTokenMatch?.[1],
+    accessKeyId: '',
+    secretAccessKey: '',
   };
+}
+
+/**
+ * Check if AWS signing is available
+ */
+export function hasAWSCredentials(): boolean {
+  return !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
 }
 
 /**
@@ -120,8 +96,6 @@ export function validateCredentials(): { valid: boolean; missing: string[] } {
     'LWA_CLIENT_ID',
     'LWA_CLIENT_SECRET',
     'REFRESH_TOKEN',
-    'AWS_ACCESS_KEY_ID',
-    'AWS_SECRET_ACCESS_KEY',
     'SELLER_ID',
     'MARKETPLACE_ID',
   ];
